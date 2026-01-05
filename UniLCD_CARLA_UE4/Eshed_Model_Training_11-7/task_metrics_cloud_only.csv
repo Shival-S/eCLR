@@ -1,0 +1,2 @@
+Success Rate,Ecological Navigation Score,Navigation Score,Infraction Count (/m),Energy Consumption (J/m),FPS (/s),Route Completion (%),Avg. Route Deviation (m),Distance covered (km),Time taken (s),Number of steps taken by local model,Number of steps taken by global model
+1,5.430015043537018e-13,99.81474990485512,0.002675072488789084,2.9352232883238063,14.179172743078345,100.0,0.43615047883479796,0.05200880247124823,70.20177936553955,0,665

@@ -1,0 +1,26 @@
+=== UniLCD 15K Evaluation Started at 2025-09-26 11:56:24 ===
+11:56:24 - 🚗 Starting Logged UniLCD 15K Model Evaluation...
+11:56:24 - ✅ Configuration loaded
+11:56:24 - 🌍 Creating environment...
+11:56:36 - ✅ Environment created
+11:56:36 - 🔄 Resetting environment...
+11:56:38 - ✅ Environment reset completed
+11:56:38 - 📂 Loading model from: unilcd_ppo_model_15k.zip
+11:56:38 - ✅ Model loaded successfully!
+11:56:38 - 🧪 Starting evaluation with 3 episodes...
+11:57:30 - 
+==================================================
+11:57:30 - 🎯 EVALUATION RESULTS:
+11:57:30 -    Mean reward: 88.18
+11:57:30 -    Standard deviation: 41.55
+11:57:30 - ==================================================
+11:57:30 - 
+🧹 Starting cleanup...
+11:57:30 -    - Closing environment...
+11:57:30 -    ⚠️  Environment cleanup warning: 'UniLCDEmbEnv' object has no attribute 'vehicles_list'
+11:57:30 -    - Clearing model...
+11:57:30 -    ✅ Model cleared
+11:57:31 - 🏁 Cleanup completed!
+11:57:31 - 
+🎉 SUCCESS: Logged evaluation completed!
+11:57:31 -    Final Results: Mean=88.18, Std=41.55

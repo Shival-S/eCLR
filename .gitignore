@@ -1,5 +1,6 @@
 # Virtual environments (not unilcd_env/ - that's source code)
 unilcd_env_py38/
+unilcd_venv/
 venv/
 .venv/
 
@@ -9,6 +10,7 @@ venv/
 # Training logs (regeneratable)
 *.log
 *.out
+logs_dir/
 
 # Python
 __pycache__/
@@ -33,6 +35,12 @@ Thumbs.db
 # Temp files
 *.tmp
 *.temp
+
+# Pickle files (regeneratable state)
+*.pkl
+
+# Large data archives
+data.zip
 
 # Pip
 =2.0.0
