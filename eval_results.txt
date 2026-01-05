@@ -1,0 +1,4 @@
+=== Starting Multiple Evaluations ===
+12:15:58 - Mean: 106.66, Std: 24.41
+12:18:00 - Mean: 106.97, Std: 24.20
+12:20:14 - Mean: 86.40, Std: 42.89

@@ -1,0 +1,39 @@
+# Virtual environments
+unilcd_env/
+unilcd_env_py38/
+venv/
+.venv/
+
+# Large video files (regeneratable)
+*.mp4
+
+# Training logs (regeneratable)
+*.log
+*.out
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# IDE / Editor
+.claude/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
+
+# Pip
+=2.0.0

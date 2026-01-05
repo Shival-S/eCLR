@@ -1,0 +1,10 @@
+{
+    "id": "unilcd_emb_env",
+    "cloud_model_checkpoint": "./cloud_model.pth",
+    "local_model_checkpoint": "./local_model.pth", 
+    "path": "./unilcd_env/envs/path_points/path_points_t10_32_95.npy",
+    "device": 0,
+    "max_episode_steps": 200,
+    "num_walkers": 5,
+    "num_vehicles": 50
+}
