@@ -1,5 +1,4 @@
-# Virtual environments
-unilcd_env/
+# Virtual environments (not unilcd_env/ - that's source code)
 unilcd_env_py38/
 venv/
 .venv/
