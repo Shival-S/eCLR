@@ -15,6 +15,12 @@ import random
 import pandas as pd
 from .il_models.cloud_model import CloudModel
 from .il_models.local_model import LocalModel
+# Optional InternVL import
+try:
+    from .il_models.cloud_model_internvl import CloudModelInternVL, CloudModelInternVLLite
+    INTERNVL_AVAILABLE = True
+except ImportError:
+    INTERNVL_AVAILABLE = False
 
 
 """
@@ -57,9 +63,33 @@ class UniLCDEmbEnv(gym.Env):
         self.device = torch.device(f"cuda:{kwargs['device']}") if kwargs['device'] else torch.device('cpu')
         
         # Initialize Imitation Learning Models for Cloud and Edge (local) setting (IL models always in eval mode during training/eval of UniLCD)
-        # 
-        self.cloud_model = CloudModel().load_state_dict(torch.load(kwargs['cloud_model_checkpoint'])).to(self.device).eval()
-        self.local_model = LocalModel().load_state_dict(torch.load(kwargs['local_model_checkpoint'])).to(self.device).eval()
+        # Check for cloud model type in config (default: 'regnet' for backward compatibility)
+        cloud_model_type = kwargs.get('cloud_model_type', 'regnet')
+
+        if cloud_model_type == 'internvl' and INTERNVL_AVAILABLE:
+            print("Loading InternVL cloud model...")
+            use_lite = kwargs.get('internvl_lite', True)
+            if use_lite:
+                self.cloud_model = CloudModelInternVLLite(device=self.device)
+            else:
+                self.cloud_model = CloudModelInternVL(device=self.device)
+            # Load checkpoint if provided
+            if kwargs.get('cloud_model_checkpoint'):
+                checkpoint = torch.load(kwargs['cloud_model_checkpoint'])
+                if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                    self.cloud_model.load_state_dict(checkpoint['model_state_dict'])
+                else:
+                    self.cloud_model.load_state_dict(checkpoint)
+            self.cloud_model = self.cloud_model.to(self.device).eval()
+        else:
+            # Default: Original RegNet-based cloud model
+            self.cloud_model = CloudModel()
+            self.cloud_model.load_state_dict(torch.load(kwargs['cloud_model_checkpoint']))
+            self.cloud_model = self.cloud_model.to(self.device).eval()
+
+        self.local_model = LocalModel()
+        self.local_model.load_state_dict(torch.load(kwargs['local_model_checkpoint']))
+        self.local_model = self.local_model.to(self.device).eval()
         
         self.tensorTransform = transforms.Compose([
             transforms.ToTensor(),
