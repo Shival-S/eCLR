@@ -22,7 +22,7 @@ class CloudModelInternVL(nn.Module):
         - actions: [B, 2] (steering_angle, speed)
     """
 
-    def __init__(self, model_name="OpenGVLab/InternVL2-2B", device=None):
+    def __init__(self, model_name="OpenGVLab/InternVL3-2B", device=None):
         super(CloudModelInternVL, self).__init__()
 
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -101,14 +101,14 @@ class CloudModelInternVL(nn.Module):
         if x.shape[-2:] != (448, 448):
             x = nn.functional.interpolate(x, size=(448, 448), mode='bilinear', align_corners=False)
 
-        # Convert to bfloat16 if model is in bfloat16
-        if next(self.model.parameters()).dtype == torch.bfloat16:
+        # Convert to bfloat16 if model is in bfloat16 (check via list to avoid StopIteration with DataParallel)
+        params = list(self.model.parameters())
+        if params and params[0].dtype == torch.bfloat16:
             x = x.to(torch.bfloat16)
             locations = locations.to(torch.bfloat16)
 
-        # Get image features from vision encoder
-        with torch.no_grad():  # Don't compute gradients for frozen model
-            image_features = self.get_image_features(x)
+        # Get image features from vision encoder (no torch.no_grad() to allow LoRA training)
+        image_features = self.get_image_features(x)
 
         # Get goal embeddings
         goal_features = self.goal(locations)
@@ -139,7 +139,7 @@ class CloudModelInternVLLite(nn.Module):
     Faster inference, suitable for real-time applications.
     """
 
-    def __init__(self, model_name="OpenGVLab/InternVL2-2B", device=None):
+    def __init__(self, model_name="OpenGVLab/InternVL3-2B", device=None):
         super(CloudModelInternVLLite, self).__init__()
 
         self.device = device or torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -190,15 +190,13 @@ class CloudModelInternVLLite(nn.Module):
         if x.shape[-2:] != (448, 448):
             x = nn.functional.interpolate(x, size=(448, 448), mode='bilinear', align_corners=False)
 
-        # Convert dtype if needed
-        if next(self.vision_model.parameters()).dtype == torch.bfloat16:
-            x = x.to(torch.bfloat16)
-            locations = locations.to(torch.bfloat16)
+        # Always convert to bfloat16 (InternVL3 uses bfloat16)
+        x = x.to(torch.bfloat16)
+        locations = locations.to(torch.bfloat16)
 
-        # Get vision features
-        with torch.no_grad():
-            vision_out = self.vision_model(x)
-            image_features = vision_out.last_hidden_state.mean(dim=1)
+        # Get vision features (no torch.no_grad() to allow LoRA training)
+        vision_out = self.vision_model(x)
+        image_features = vision_out.last_hidden_state.mean(dim=1)
 
         # Goal features
         goal_features = self.goal(locations.float())

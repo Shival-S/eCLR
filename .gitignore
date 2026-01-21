@@ -41,6 +41,11 @@ Thumbs.db
 
 # Large data archives
 data.zip
+data/
+
+# Model checkpoints (too large for git)
+*.pth
+*.zip
 
 # Pip
 =2.0.0

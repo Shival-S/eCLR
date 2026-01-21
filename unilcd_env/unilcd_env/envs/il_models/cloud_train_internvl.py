@@ -1,6 +1,7 @@
 """
 Training script for InternVL3-2B Cloud Model with LoRA fine-tuning.
 Uses Parameter-Efficient Fine-Tuning (PEFT) to train on CARLA dataset.
+Uses Accelerate for multi-GPU training (compatible with PEFT).
 """
 
 import torch
@@ -13,6 +14,9 @@ from pathlib import Path
 
 from cloud_model_internvl import CloudModelInternVL, CloudModelInternVLLite
 from cloud_dataloader import get_dataloader
+
+# Accelerate for multi-GPU (PEFT-compatible)
+from accelerate import Accelerator
 
 # Optional: LoRA imports
 try:
@@ -32,11 +36,11 @@ def setup_lora(model, lora_r=16, lora_alpha=32):
         print("PEFT not available. Training full model (requires more VRAM)")
         return model, None
 
-    # LoRA configuration for vision model
+    # LoRA configuration for vision model (InternVL3 uses qkv and proj modules)
     lora_config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
-        target_modules=["q_proj", "v_proj", "k_proj", "o_proj"],
+        target_modules=["qkv", "proj"],  # InternVL3 attention modules
         lora_dropout=0.1,
         bias="none",
     )
@@ -52,7 +56,7 @@ def setup_lora(model, lora_r=16, lora_alpha=32):
     return model, lora_config
 
 
-def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch_size=8):
+def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch_size=8, resume_path=None):
     """
     Train InternVL cloud model on CARLA dataset.
 
@@ -63,9 +67,13 @@ def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch
         use_lora: Use LoRA for efficient fine-tuning
         epochs: Number of training epochs
         batch_size: Batch size (reduce if OOM)
+        resume_path: Path to checkpoint to resume from (optional)
     """
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # Initialize Accelerator for multi-GPU training (PEFT-compatible)
+    accelerator = Accelerator()
+    device = accelerator.device
     print(f"Using device: {device}")
+    print(f"Num processes: {accelerator.num_processes}")
 
     start_time = time.time()
 
@@ -86,8 +94,6 @@ def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch
     if use_lora:
         model, lora_config = setup_lora(model)
 
-    model.to(device)
-
     # Unfreeze action head and goal network (always trainable)
     for param in model.action_head.parameters():
         param.requires_grad = True
@@ -96,37 +102,54 @@ def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch
 
     # Optimizer - only train unfrozen parameters
     trainable_params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(trainable_params, lr=1e-4, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(trainable_params, lr=1e-4)
     criterion = nn.L1Loss()
 
-    # Learning rate scheduler
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    # Learning rate scheduler (matching Kathakoli's StepLR: step=20, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+
+    # Resume from checkpoint if specified
+    start_epoch = 0
+    best_loss = float('inf')
+    if resume_path and Path(resume_path).exists():
+        print(f"\nResuming from checkpoint: {resume_path}")
+        checkpoint = torch.load(resume_path, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        start_epoch = checkpoint['epoch'] + 1
+        # Step scheduler to correct position
+        for _ in range(start_epoch):
+            scheduler.step()
+        print(f"Resumed from epoch {start_epoch}, LR: {scheduler.get_last_lr()[0]:.2e}")
 
     # Data loader
     print(f"\nLoading data from: {data_folder}")
     train_loader = get_dataloader(data_folder, batch_size)
     print(f"Dataset size: {len(train_loader.dataset)} samples")
-    print(f"Batch size: {batch_size}")
+    print(f"Batch size per GPU: {batch_size}")
+    print(f"Effective batch size: {batch_size * accelerator.num_processes}")
     print(f"Batches per epoch: {len(train_loader)}")
+
+    # Prepare model, optimizer, and dataloader with Accelerator
+    model, optimizer, train_loader = accelerator.prepare(model, optimizer, train_loader)
 
     # Training loop
     print("\n" + "=" * 60)
-    print(f"Starting training for {epochs} epochs")
+    print(f"Starting training for {epochs} epochs (from epoch {start_epoch + 1})")
     print("=" * 60)
 
     loss_values = []
-    best_loss = float('inf')
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         model.train()
         total_loss = 0
         num_batches = 0
 
         for batch_idx, batch in enumerate(train_loader):
-            # batch = (images, actions, locations)
-            images = batch[0].to(device)
-            actions_gt = batch[1].to(device)
-            locations = batch[2].to(device)
+            # batch = (images, actions, locations) - already on correct device via accelerator
+            images = batch[0]
+            actions_gt = batch[1]
+            locations = batch[2]
 
             # Forward pass
             actions_pred = model(images, locations)
@@ -134,9 +157,9 @@ def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch
             # Compute loss
             loss = criterion(actions_pred, actions_gt)
 
-            # Backward pass
+            # Backward pass (use accelerator for multi-GPU)
             optimizer.zero_grad()
-            loss.backward()
+            accelerator.backward(loss)
             optimizer.step()
 
             total_loss += loss.item()
@@ -159,33 +182,45 @@ def train(data_folder, save_path, use_lite=True, use_lora=True, epochs=50, batch
         print(f"Epoch {epoch + 1:3d}/{epochs} | Loss: {epoch_loss:.6f} | "
               f"LR: {scheduler.get_last_lr()[0]:.2e} | ETA: {eta:.0f}s")
 
-        # Save best model
+        # Save best model (only on main process)
         if epoch_loss < best_loss:
             best_loss = epoch_loss
-            save_checkpoint(model, optimizer, epoch, save_path, lora_config)
-            print(f"  -> Saved best model (loss: {best_loss:.6f})")
+            if accelerator.is_main_process:
+                unwrapped_model = accelerator.unwrap_model(model)
+                save_checkpoint(unwrapped_model, optimizer, epoch, save_path, lora_config)
+                print(f"  -> Saved best model (loss: {best_loss:.6f})")
 
-    # Final save
+        # Save checkpoint every epoch (safety backup)
+        if accelerator.is_main_process:
+            periodic_path = save_path.replace('.pth', f'_epoch{epoch+1}.pth')
+            unwrapped_model = accelerator.unwrap_model(model)
+            save_checkpoint(unwrapped_model, optimizer, epoch, periodic_path, lora_config)
+            print(f"  -> Epoch checkpoint saved: {periodic_path}")
+
+    # Final save (only on main process)
     final_path = save_path.replace('.pth', '_final.pth')
-    save_checkpoint(model, optimizer, epochs, final_path, lora_config)
+    if accelerator.is_main_process:
+        unwrapped_model = accelerator.unwrap_model(model)
+        save_checkpoint(unwrapped_model, optimizer, epochs, final_path, lora_config)
 
-    # Plot learning curve
-    plt.figure(figsize=(10, 6))
-    plt.title('InternVL Cloud Model Training Loss')
-    plt.plot(loss_values, label='Training Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('L1 Loss')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(save_path.replace('.pth', '_learning_curve.jpg'))
-    plt.close()
+    # Plot learning curve (only on main process)
+    if accelerator.is_main_process:
+        plt.figure(figsize=(10, 6))
+        plt.title('InternVL Cloud Model Training Loss')
+        plt.plot(loss_values, label='Training Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('L1 Loss')
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(save_path.replace('.pth', '_learning_curve.jpg'))
+        plt.close()
 
-    print("\n" + "=" * 60)
-    print("Training Complete!")
-    print(f"Total time: {(time.time() - start_time) / 60:.1f} minutes")
-    print(f"Best loss: {best_loss:.6f}")
-    print(f"Model saved to: {save_path}")
-    print("=" * 60)
+        print("\n" + "=" * 60)
+        print("Training Complete!")
+        print(f"Total time: {(time.time() - start_time) / 60:.1f} minutes")
+        print(f"Best loss: {best_loss:.6f}")
+        print(f"Model saved to: {save_path}")
+        print("=" * 60)
 
 
 def save_checkpoint(model, optimizer, epoch, path, lora_config=None):
@@ -216,12 +251,14 @@ if __name__ == "__main__":
                         help='Use lite version (vision encoder only)')
     parser.add_argument('--no-lora', action='store_true',
                         help='Disable LoRA (train full model)')
-    parser.add_argument('--epochs', type=int, default=50,
-                        help='Number of epochs')
-    parser.add_argument('--batch-size', type=int, default=8,
-                        help='Batch size (reduce if OOM)')
+    parser.add_argument('--epochs', type=int, default=200,
+                        help='Number of epochs (Kathakoli used 200)')
+    parser.add_argument('--batch-size', type=int, default=16,
+                        help='Batch size (Kathakoli used 16)')
     parser.add_argument('--lora-r', type=int, default=16,
                         help='LoRA rank')
+    parser.add_argument('--resume', type=str, default=None,
+                        help='Path to checkpoint to resume from')
 
     args = parser.parse_args()
 
@@ -231,5 +268,6 @@ if __name__ == "__main__":
         use_lite=args.lite,
         use_lora=not args.no_lora,
         epochs=args.epochs,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        resume_path=args.resume
     )

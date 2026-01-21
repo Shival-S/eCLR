@@ -329,7 +329,7 @@ class World(object):
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
         veh_blueprint = random.choice(
             # self.world.get_blueprint_library().filter('cybertruck'))
-            self.world.get_blueprint_library().filter('model3'))
+            self.world.get_blueprint_library().filter('vehicle.lincoln.mkz'))
 
         veh_blueprint.set_attribute('color', '128,128,128')
 

@@ -73,13 +73,13 @@ class UniLCDEmbEnv(gym.Env):
                 self.cloud_model = CloudModelInternVLLite(device=self.device)
             else:
                 self.cloud_model = CloudModelInternVL(device=self.device)
-            # Load checkpoint if provided
+            # Load checkpoint if provided (use strict=False to allow missing goal/action_head keys)
             if kwargs.get('cloud_model_checkpoint'):
                 checkpoint = torch.load(kwargs['cloud_model_checkpoint'])
                 if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                    self.cloud_model.load_state_dict(checkpoint['model_state_dict'])
+                    self.cloud_model.load_state_dict(checkpoint['model_state_dict'], strict=False)
                 else:
-                    self.cloud_model.load_state_dict(checkpoint)
+                    self.cloud_model.load_state_dict(checkpoint, strict=False)
             self.cloud_model = self.cloud_model.to(self.device).eval()
         else:
             # Default: Original RegNet-based cloud model
@@ -312,7 +312,7 @@ class UniLCDEmbEnv(gym.Env):
             controller_list = []
             controller_bp = self.world.world.get_blueprint_library().find('controller.ai.walker')
             for walker in self.dense_walkerId_dict['walkers']:
-                batch.append(carla.libcarla.command.SpawnActor(controller_bp, carla.Transform(), walker))
+                batch.append(util.SpawnActor(controller_bp, carla.Transform(), walker))
             for response in self.client.apply_batch_sync(batch, True):
                 if response.error:
                     print(response.error)

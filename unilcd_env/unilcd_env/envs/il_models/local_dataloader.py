@@ -28,7 +28,17 @@ class CarlaDatasetLocal(Dataset):
         self.crop = crop
 
         # Detect format and load file lists
-        if img_folder is not None:
+        images_dir = os.path.join(data_dir, 'Images')
+        info_dir = os.path.join(data_dir, 'Info')
+
+        if os.path.isdir(images_dir) and os.path.isdir(info_dir):
+            # UniLCD format (Images/ and Info/ subfolders)
+            self.img_list = sorted(glob.glob(os.path.join(images_dir, '*.jpg')))
+            if not self.img_list:
+                self.img_list = sorted(glob.glob(os.path.join(images_dir, '*.png')))
+            self.data_list = sorted(glob.glob(os.path.join(info_dir, '*.npy')))
+            self.format = 'unilcd'
+        elif img_folder is not None:
             # New UE5 format
             img_path = os.path.join(data_dir, img_folder)
             action_path = os.path.join(data_dir, 'actions')
@@ -85,7 +95,7 @@ class CarlaDatasetLocal(Dataset):
         elif self.format == 'legacy':
             # Default legacy crop (center crop for 640x320)
             img = img[:, :, 80:560]
-        # For UE5 format without explicit crop, use full image
+        # For UE5/unilcd format without explicit crop, use full image
 
         # Resize to 96x96 for local model
         img = self.resize(img)

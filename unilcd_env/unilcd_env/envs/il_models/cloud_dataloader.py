@@ -46,6 +46,15 @@ class CarlaDataset(Dataset):
             self.img_list = sorted(glob.glob(os.path.join(img_path, '*.png')))
             self.data_list = sorted(glob.glob(os.path.join(action_path, '*.npy')))
             self.format = 'ue5'
+        elif os.path.isdir(os.path.join(data_dir, 'Images')) and os.path.isdir(os.path.join(data_dir, 'Info')):
+            # UniLCD format: Images/ and Info/ subfolders
+            img_path = os.path.join(data_dir, 'Images')
+            info_path = os.path.join(data_dir, 'Info')
+            self.img_list = sorted(glob.glob(os.path.join(img_path, '*.jpg')))
+            if not self.img_list:
+                self.img_list = sorted(glob.glob(os.path.join(img_path, '*.png')))
+            self.data_list = sorted(glob.glob(os.path.join(info_path, '*.npy')))
+            self.format = 'unilcd'
         else:
             # Legacy format: images and actions in root
             self.img_list = sorted(glob.glob(os.path.join(data_dir, '*.jpg')))
@@ -96,6 +105,20 @@ class CarlaDataset(Dataset):
         elif self.format == 'legacy':
             # Default legacy crop (for 640x320 images -> 480x480 center crop)
             img = img[:, 120:600, 400:880]
+        elif self.format == 'unilcd':
+            # For UniLCD format (1920x1080), resize to 480x270 (maintain aspect ratio)
+            # Then center crop to 224x224 for model input
+            img = torch.nn.functional.interpolate(
+                img.unsqueeze(0).float(),
+                size=(270, 480),
+                mode='bilinear',
+                align_corners=False
+            ).squeeze(0).to(torch.uint8)
+            # Center crop to 224x224
+            h, w = img.shape[1], img.shape[2]
+            top = (h - 224) // 2
+            left = (w - 224) // 2
+            img = img[:, top:top+224, left:left+224]
         # For UE5 format without explicit crop, use full image
 
         # Normalize
